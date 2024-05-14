@@ -1,6 +1,11 @@
 import json
 import requests
 import datetime
+from cryptography.fernet import Fernet
+from pymongo import MongoClient
+import os
+import csv
+import openpyxl
 
 class ultraChatBot():    
     def __init__(self, json):
@@ -19,11 +24,110 @@ class ultraChatBot():
             'current_medications': ''
         }
         
+        # MongoDB connection
+        self.mongo_client = MongoClient('mongodb://localhost:27017/')
+        self.db = self.mongo_client['patient_data']
+        self.collection = self.db['patient_records']
+
+        # Encryption key
+        self.encryption_key = os.environ.get('ENCRYPTION_KEY') or Fernet.generate_key()
+
         # Initialize variables for conversational flow
         self.conversation_state = 'welcome'  # Initial state
         self.current_field = None
 
+    
+    def handle_conversation(self, chatID, message):
+        user_input = message['body'].lower()
+
+        if self.conversation_state == 'welcome':
+            self.welcome(chatID)
+
+        elif self.conversation_state == 'collect_full_name':
+            self.patient_data['full_name'] = user_input
+            self.send_message(chatID, "Please provide your date of birth (DD/MM/YYYY).")
+            self.conversation_state = 'collect_date_of_birth'
+            self.current_field = 'date_of_birth'
+
+        elif self.conversation_state == 'collect_date_of_birth':
+            self.patient_data['date_of_birth'] = user_input
+            self.send_message(chatID, "Please specify your gender (Male/Female/Other).")
+            self.conversation_state = 'collect_gender'
+            self.current_field = 'gender'
+
+        elif self.conversation_state == 'collect_gender':
+            self.patient_data['gender'] = user_input
+            self.send_message(chatID, "Please provide your address")
+            self.conversation_state = 'collect_address'
+            self.current_field = 'address'
+
+        elif self.conversation_state == 'collect_address':
+            self.patient_data['address'] = user_input
+            self.send_message(chatID, "Please provide your medical history")
+            self.conversation_state = 'collect_medical_history'
+            self.current_field = 'medical_history'
+
+        elif self.conversation_state == 'collect_medical_history':
+            self.patient_data['medical_history'] = user_input
+            self.send_message(chatID, "Please provide your current medications(if any)")
+            self.conversation_state = 'collect_current_medications'
+            self.current_field = 'current_medications'
+
+        elif self.conversation_state == 'collect_current_medications':
+            self.patient_data['current_medications'] = user_input
+            self.send_message(chatID, "Thank you for providing your information. Your data has been securely stored.")
+            self.store_data_securely()  # Call the method to store data securely
+            self.send_message(chatID, "Please choose an export option: \n1. CSV\n2. Excel")
+            self.conversation_state = 'export_data'
+        elif self.conversation_state == 'export_data':
+            if user_input == '1':
+                self.export_to_csv()
+                self.send_message(chatID, "Your data has been exported to a CSV file.")
+            elif user_input == '2':
+                self.export_to_excel()
+                self.send_message(chatID, "Your data has been exported to an Excel file.")
+            else:
+                self.send_message(chatID, "Invalid option. Please choose 1, or 2.")
+
+        else:
+            self.send_message(chatID, "I'm sorry, I didn't understand your response. Please try again.")
+
    
+    def store_data_securely(self):
+        # Encrypt the patient data
+        fernet = Fernet(self.encryption_key)
+        encrypted_data = fernet.encrypt(str(self.patient_data).encode())
+
+        # Store the encrypted data in MongoDB
+        record = {
+            'encrypted_data': encrypted_data
+        }
+        self.collection.insert_one(record)
+        print("Patient data stored securely in MongoDB.")
+    
+
+    def export_to_csv(self):
+    # Write the patient data to a CSV file
+        with open('patient_data.csv', mode='w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=self.patient_data.keys())
+            writer.writeheader()
+            writer.writerow(self.patient_data)
+    
+
+
+    def export_to_excel(self):
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        
+        headers = list(self.patient_data.keys())
+        worksheet.append(headers)
+        
+        data_row = list(self.patient_data.values())
+        worksheet.append(data_row)
+        workbook.save('patient_data.xlsx')
+        print("Patient data exported to 'patient_data.xlsx'")
+
+
     def send_requests(self, type, data):
         url = f"{self.ultraAPIUrl}{type}?token={self.token}"
         headers = {'Content-type': 'application/json'}
@@ -36,43 +140,6 @@ class ultraChatBot():
         answer = self.send_requests('messages/chat', data)
         return answer
 
-    def send_image(self, chatID):
-        data = {"to" : chatID,
-                "image" : "https://file-example.s3-accelerate.amazonaws.com/images/test.jpeg"}  
-        answer = self.send_requests('messages/image', data)
-        return answer
-
-    def send_video(self, chatID):
-        data = {"to" : chatID,
-                "video" : "https://file-example.s3-accelerate.amazonaws.com/video/test.mp4"}  
-        answer = self.send_requests('messages/video', data)
-        return answer
-
-    def send_audio(self, chatID):
-        data = {"to" : chatID,
-                "audio" : "https://file-example.s3-accelerate.amazonaws.com/audio/2.mp3"}  
-        answer = self.send_requests('messages/audio', data)
-        return answer
-
-
-    def send_voice(self, chatID):
-        data = {"to" : chatID,
-                "audio" : "https://file-example.s3-accelerate.amazonaws.com/voice/oog_example.ogg"}  
-        answer = self.send_requests('messages/voice', data)
-        return answer
-
-    def send_contact(self, chatID):
-        data = {"to" : chatID,
-                "contact" : "14000000001@c.us"}  
-        answer = self.send_requests('messages/contact', data)
-        return answer
-
-
-    def time(self, chatID):
-        t = datetime.datetime.now()
-        time = t.strftime('%Y-%m-%d %H:%M:%S')
-        return self.send_message(chatID, time)
-
 
     def welcome(self, chatID):
         welcome_message = "Hi! Welcome to the WhatsApp Patient Data Collection Bot. I will ask you a series of questions to collect your personal and medical information. Please provide accurate responses. Let's start with your full name."
@@ -82,26 +149,26 @@ class ultraChatBot():
         # return self.send_message(chatID, welcome_string)
 
 
-    def Processingـincomingـmessages(self):
-        if self.dict_messages != []:
-            message =self.dict_messages
-            text = message['body'].split()
-            if not message['fromMe']:
-                chatID  = message['from'] 
-                if text[0].lower() == 'hi':
-                    return self.welcome(chatID)
-                elif text[0].lower() == 'time':
-                    return self.time(chatID)
-                elif text[0].lower() == 'image':
-                    return self.send_image(chatID)
-                elif text[0].lower() == 'video':
-                    return self.send_video(chatID)
-                elif text[0].lower() == 'audio':
-                    return self.send_audio(chatID)
-                elif text[0].lower() == 'voice':
-                    return self.send_voice(chatID)
-                elif text[0].lower() == 'contact':
-                    return self.send_contact(chatID)
-                else:
-                    return self.welcome(chatID, True)
-            else: return 'NoCommand'
+    # def Processingـincomingـmessages(self):
+    #     if self.dict_messages != []:
+    #         message =self.dict_messages
+    #         text = message['body'].split()
+    #         if not message['fromMe']:
+    #             chatID  = message['from'] 
+    #             if text[0].lower() == 'hi':
+    #                 return self.welcome(chatID)
+    #             elif text[0].lower() == 'time':
+    #                 return self.time(chatID)
+    #             elif text[0].lower() == 'image':
+    #                 return self.send_image(chatID)
+    #             elif text[0].lower() == 'video':
+    #                 return self.send_video(chatID)
+    #             elif text[0].lower() == 'audio':
+    #                 return self.send_audio(chatID)
+    #             elif text[0].lower() == 'voice':
+    #                 return self.send_voice(chatID)
+    #             elif text[0].lower() == 'contact':
+    #                 return self.send_contact(chatID)
+    #             else:
+    #                 return self.welcome(chatID, True)
+    #         else: return 'NoCommand'
