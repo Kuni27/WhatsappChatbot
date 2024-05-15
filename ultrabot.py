@@ -7,7 +7,9 @@ import os
 import csv
 import openpyxl
 
-class ultraChatBot():    
+class ultraChatBot():
+
+    user_inputs = {}    
     
     conversation_state = 'welcome'  # Initial state
     current_field = None
@@ -38,7 +40,9 @@ class ultraChatBot():
 
     
     def handle_conversation(self, chatID, message):
-        print ('Before update', self.conversation_states)
+        # print ('Before update', self.conversation_states)
+
+        print(self.patient_data)
 
         user_input = message['body'].lower()
 
@@ -75,35 +79,35 @@ class ultraChatBot():
             self.current_field = 'gender'
             return self.send_message(chatID, "Please specify your gender (Male/Female/Other).")
 
-        elif self.conversation_state == 'collect_gender':
+        elif conversation_state == 'collect_gender':
             self.patient_data['gender'] = user_input
             self.send_message(chatID, "Please provide your address")
             self.conversation_states[chatID]= 'collect_address'
             self.current_field = 'address'
             return self.send_message(chatID, "Please provide your address.")
 
-        elif self.conversation_state == 'collect_address':
+        elif conversation_state == 'collect_address':
             self.patient_data['address'] = user_input
             self.send_message(chatID, "Please provide your medical history")
             self.conversation_states[chatID]= 'collect_medical_history'
             self.current_field = 'medical_history'
             return self.send_message(chatID, "Please provide your medical history.")
 
-        elif self.conversation_state == 'collect_medical_history':
+        elif conversation_state == 'collect_medical_history':
             self.patient_data['medical_history'] = user_input
             self.send_message(chatID, "Please provide your current medications(if any)")
             self.conversation_states[chatID]= 'collect_current_medications'
             self.current_field = 'current_medications'
             return self.send_message(chatID, "Please provide your current medications (if any).")
 
-        elif self.conversation_state == 'collect_current_medications':
+        elif conversation_state == 'collect_current_medications':
             self.patient_data['current_medications'] = user_input
             self.send_message(chatID, "Thank you for providing your information. Your data has been securely stored.")
             # self.store_data_securely()  # Call the method to store data securely
             self.send_message(chatID, "Please choose an export option: \n1. CSV\n2. Excel")
             self.conversation_states[chatID]= 'export_data'
             return self.send_message(chatID, "Please choose an export option: \n1. CSV\n2. Excel")
-        elif self.conversation_state == 'export_data':
+        elif conversation_state == 'export_data':
             if user_input == '1':
                 self.export_to_csv()
                 # self.send_message(chatID, "Your data has been exported to a CSV file.")
@@ -117,6 +121,8 @@ class ultraChatBot():
 
         else:
             return self.send_message(chatID, "I'm sorry, I didn't understand your response. Please try again.")
+        
+        
 
    
     # def store_data_securely(self):
